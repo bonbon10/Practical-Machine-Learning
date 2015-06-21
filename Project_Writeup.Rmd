@@ -1,0 +1,122 @@
+---
+title: "Prediction Using Exercise Data"
+output: html_document
+---
+
+
+### Summary:
+
+This project uses prediction methods using physical activity data. The goal is to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways, and we want to predict the manner in which they did the exercise. 
+
+------------------------------------------
+
+##### Load and Clean Data
+
+Load the necessary libraries and set random seed.
+
+```{r, warning=FALSE}
+library(caret)
+library(ggplot2)
+library(randomForest)
+set.seed(563962612)
+```
+
+Read in training and testing data.
+
+```{r}
+train <- read.csv("pml-training.csv")
+test <- read.csv("pml-testing.csv")
+```
+
+Check how many observations and variables are in each dataset.
+
+```{r}
+dim(train); dim(test)
+```
+
+Check to see how many variables have NA or blank values.
+
+```{r}
+na_sum <- sapply(train, function(x) sum(length(which(is.na(x))))+length(which(x=="")))
+```
+
+Delete the variables with NA values or blank values.
+
+```{r}
+train_nomissing <- train[,which(na_sum==0)]
+```
+
+We also need to delete the first seven variables in the data, which are not valid predictors of classe.
+
+```{r}
+names(train_nomissing)[1:7]
+train_clean <- train_nomissing[,-c(1:7)]
+names(train_clean)
+```
+
+Keep same variables in the testing dataset.
+
+```{r}
+test_clean <- test[ , which(names(test) %in% names(train_clean))]
+```
+
+#### Pre-processing the Data
+
+Check the values of the classe variable, which we are looking to predict.
+
+```{r}
+summary(train_clean$classe)
+ggplot(data=train_clean, aes(x=classe)) + geom_bar(stat="bin", fill="purple") + xlab("Classe") + ylab("Count")  + ggtitle("Bar Graph of Classe, the Variable We Wish to Predict")
+```
+
+We want to split our training dataset into a dataset that is used to build the model and a validation dataset to test the model.
+
+```{r}
+train_index <- createDataPartition(train_clean$classe, p=0.75, list=F)
+train_true <- train_clean[train_index,]
+train_validate <- train_clean[-train_index,]
+```
+
+#### Prediction Model
+
+We will predict using random forests because it is a highly accurate and widely used prediction method. It works using bootstrap samples, which is essentially taking resamples of our observed data and our training data set. Then classification or regression trees are rebuilt on each of those bootstrap samples. When the data are split each time in a classification tree, the variables are also bootstrapped. In other words, only a subset of the variables is considered at each potential split. This makes for a diverse set of potential trees that can be built, so we grow a large number of trees. The trees are then averaged to get the prediction for a new outcome.
+
+We will use 4-fold cross-validation in the algorithm.
+
+```{r, cache=TRUE}
+control_tr <- trainControl(method="cv", 4)
+model1 <- train(classe ~ ., data=train_true, method="rf", trControl=control_tr,prox=TRUE)
+model1; model1$finalModel
+```
+
+#### Cross Validation
+
+Next, we can evaluate the model using the validation dataset. We want to use our model to predict the values on the validation part of the training dataset.
+
+```{r}
+predict_on_validation <- predict(model1, train_validate)
+```
+
+We can run diagnostics to see how accurate the model is.
+
+```{r}
+confusionMatrix(predict_on_validation, train_validate$classe)
+```
+
+We see that the accuracy of this model is 0.9933, which means that the out of sample error is 1 minus that value, equal to 0.0067.
+
+We can create a bar plot to illustrate the accuracy of the predictions.
+
+```{r}
+train_validate$correct <- predict_on_validation==train_validate$classe
+table(train_validate$correct)
+qplot(classe, fill=correct, data=train_validate)
+```
+
+Finally, we want to use the model to predict classe on the test dataset.
+
+```{r}
+predict_test <- predict(model1, test_clean)
+predict_test
+```
+
